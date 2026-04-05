@@ -1,0 +1,172 @@
+# Cloud Custodian Governance Policies
+# Project Kronos — Phase 2 Deliverable
+# Deployed on: Cloud Custodian v0.9.46
+# Platforms: AWS, Microsoft Azure, Google Cloud Platform
+
+---
+
+# Policy 1: AWS EC2 Tag Enforcement
+# Purpose: Stop EC2 instances missing mandatory Owner tags and mark as non-compliant
+# Trigger: EC2 instance without 'Owner' tag
+# Action: Stop instance + tag as non-compliant
+
+policies:
+  - name: stop-untagged-ec2
+    description: |
+      Stop EC2 instances without mandatory Owner tags.
+      Marks non-compliant instances for remediation tracking.
+      Part of Project Kronos cross-cloud tagging enforcement.
+    resource: aws.ec2
+    filters:
+      - "tag:Owner": absent
+    actions:
+      - type: stop
+      - type: tag
+        key: Custodian-NonCompliant
+        value: "Missing-Owner-Tag"
+
+---
+
+# Policy 2: Azure Public IP Cleanup
+# Purpose: Automatically delete unused Azure public IPs not associated with VMs or Load Balancers
+# Trigger: Public IP with no ipConfiguration (unattached)
+# Action: Delete the unused public IP
+
+  - name: delete-unused-public-ip
+    description: |
+      Delete any Azure public IP not associated with a VM or Load Balancer.
+      Reduces attack surface from orphaned public endpoints.
+      Part of Project Kronos network hardening controls.
+    resource: azure.publicip
+    filters:
+      - type: value
+        key: properties.ipConfiguration
+        value: null
+    actions:
+      - type: delete
+
+---
+
+# Policy 3: GCP SSH Security Monitoring
+# Purpose: Detect GCP firewall rules allowing SSH (port 22) access from 0.0.0.0/0
+# Trigger: GCP firewall rule with sourceRange 0.0.0.0/0 and TCP protocol
+# Action: Alert (notify via Wazuh SIEM integration)
+
+  - name: gcp-open-ssh
+    resource: gcp.firewall
+    description: |
+      Detect GCP firewall rules allowing SSH (port 22) from the public internet (0.0.0.0/0).
+      Open SSH access is a critical risk — enables brute-force and unauthorized access.
+      Part of Project Kronos network access monitoring.
+    filters:
+      - type: value
+        key: sourceRanges[]
+        op: contains
+        value: "0.0.0.0/0"
+      - type: value
+        key: allowed[].IPProtocol
+        value: "tcp"
+    actions:
+      - type: notify
+        slack_template: default
+        subject: "CRITICAL: GCP SSH Open to Internet Detected"
+
+---
+
+# Policy 4: Multi-Cloud Storage Security
+# Purpose: Restrict public access across AWS S3, Azure Blob, and GCP Cloud Storage
+# Trigger: Any storage resource with public read/write access
+# Action: Block public access
+
+  # AWS S3 — Block public read/write
+  - name: restrict-public-s3
+    description: |
+      Block any S3 bucket granting public READ or WRITE permissions.
+      Prevents credential exposure via misconfigured buckets (as exploited in Project Kronos Stage 2).
+    resource: aws.s3
+    filters:
+      - type: global-grants
+        perms: [READ, WRITE]
+    actions:
+      - type: set-bucket-policy
+        state: block
+
+  # Azure Blob Storage — Remove public access
+  - name: restrict-public-azure-blob
+    description: |
+      Remove public access from Azure Blob storage accounts.
+      Enforces private-only access for all Azure storage resources.
+    resource: azure.storage
+    filters:
+      - type: value
+        key: properties.publicAccess
+        op: not-equal
+        value: None
+    actions:
+      - type: set-public-access
+        value: none
+
+  # GCP Cloud Storage — Remove allUsers / allAuthenticatedUsers from objectViewer
+  - name: restrict-public-gcp-buckets
+    description: |
+      Remove public IAM bindings from GCP Cloud Storage buckets.
+      Prevents public access to sensitive data including crown jewel datasets.
+    resource: gcp.bucket
+    filters:
+      - type: iam-policy
+        bindings:
+          - role: roles/storage.objectViewer
+            members: ["allUsers", "allAuthenticatedUsers"]
+    actions:
+      - type: remove-iam-members
+        role: roles/storage.objectViewer
+        members: ["allUsers", "allAuthenticatedUsers"]
+
+---
+
+# Policy 5: Cross-Cloud Tagging Enforcement
+# Purpose: Enforce required Owner tags across AWS EC2, Azure VMs, and GCP instances
+# Trigger: Any compute instance missing Owner/owner tag
+# Action: Tag as non-compliant + stop (AWS) or tag only (Azure, GCP)
+
+  # AWS EC2 — Stop and tag non-compliant instances
+  - name: enforce-required-tags
+    description: |
+      Stop AWS EC2 instances missing Owner tags and mark as non-compliant.
+      Ensures all compute resources are attributable to an accountable owner.
+    resource: aws.ec2
+    filters:
+      - "tag:Owner": absent
+    actions:
+      - type: stop
+      - type: tag
+        key: Custodian-NonCompliant
+        value: "Missing-Owner-Tag"
+
+  # Azure VM — Tag non-compliant VMs
+  - name: enforce-required-tags-azure
+    description: |
+      Tag Azure VMs missing Owner tags as non-compliant for remediation tracking.
+    resource: azure.vm
+    filters:
+      - type: value
+        key: "tags.Owner"
+        op: missing
+    actions:
+      - type: tag
+        tag: Custodian-NonCompliant
+        value: "Missing-Owner-Tag"
+
+  # GCP Compute — Label non-compliant instances
+  - name: enforce-required-tags-gcp
+    description: |
+      Label GCP compute instances missing owner labels as non-compliant.
+    resource: gcp.instance
+    filters:
+      - type: value
+        key: "labels.owner"
+        op: missing
+    actions:
+      - type: set-labels
+        labels:
+          custodian-noncompliant: missing-owner-tag

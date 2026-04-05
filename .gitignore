@@ -1,0 +1,53 @@
+# Project Kronos — .gitignore
+
+# Credentials & secrets (NEVER commit these)
+*.key
+*.pem
+*.p12
+*.pfx
+*.env
+.env.*
+secrets/
+credentials/
+*_credentials.json
+*_service_account.json
+azure_sp.json
+terraform.tfstate
+terraform.tfstate.backup
+*.tfvars
+.terraform/
+
+# Cloud provider CLI configs
+.aws/
+.azure/
+.config/gcloud/
+
+# OS files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Logs
+*.log
+logs/
+
+# Temp files
+*.tmp
+*.bak
